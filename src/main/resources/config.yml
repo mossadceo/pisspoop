@@ -1,0 +1,18 @@
+message:
+  start: §eYou started peeing...
+  cooldown: §cYou're already peeing!
+  no-permission: §cYou do not have permission to use this command.
+
+piss:
+  duration: 200
+  drop-interval: 2
+  drop-speed: 0.3
+  drop-gravity: -0.02
+  drop-size: 0.1
+  drop-hitbox: 0.2
+
+puddle:
+  lifetime: 100
+  size: 0.6
+  thickness: 0.01
+  random-offset: 2.0
