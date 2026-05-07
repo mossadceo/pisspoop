@@ -2,7 +2,8 @@ name: piss
 version: '1.0'
 main: net.nar1nari.piss.Piss
 api-version: '1.21'
-authors: [ nar1nari ]
+folia-supported: true
+authors: [ mossadceo ]
 description: A plugin you need to relieve yourself.
 commands:
   piss:

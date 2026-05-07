@@ -1,6 +1,6 @@
-# Piss Plugin
+# Piss Plugin Folia
 
-A fun Paper/Spigot plugin that allows players to **pee** in Minecraft using the `/piss` command.  
+A Paper/Folia 1.21 plugin that allows players to **pee** in Minecraft using the `/piss` command.  
 When activated, the player will emit a small yellow stained glass stream forward, which falls with gravity and creates puddles when hitting blocks.
 
 ---
@@ -12,6 +12,17 @@ When activated, the player will emit a small yellow stained glass stream forward
 - Permissions support.  
 - `/piss reload` command for reloading configuration without restarting the server.  
 - Works with scaled players (supports different player sizes).
+- Supports Paper and Folia scheduling APIs.
+- Marks and cleans plugin-created display entities to avoid stuck glass after restarts.
+
+---
+
+## Build
+```bash
+./gradlew build
+```
+
+The compiled plugin jar is created in `build/libs/`.
 
 ---
 
@@ -49,3 +60,14 @@ puddle:
   size: 0.6             # Puddle size
   thickness: 0.01       # Puddle thickness (flatness)
   random-offset: 2.0    # Random offset for puddle spread
+```
+
+---
+
+## Credits and License
+
+This project is based on the original Piss plugin by **nar1nari**.
+
+Folia/Paper compatibility updates and Gradle migration by **mossadceo**.
+
+The project is distributed under the MIT License. The original copyright notice is preserved in `LICENSE`.

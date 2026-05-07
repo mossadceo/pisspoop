@@ -1,23 +1,41 @@
 package net.nar1nari.piss;
 
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 
-import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
-public final class Piss extends JavaPlugin {
-    private final Set<UUID> pissingPlayers = new HashSet<>();
+public final class Piss extends JavaPlugin implements Listener {
+    private static final String DISPLAY_TAG = "piss-plugin-display";
+    private static final Set<Material> LEGACY_DISPLAY_MATERIALS = Set.of(
+            Material.YELLOW_STAINED_GLASS,
+            Material.YELLOW_STAINED_GLASS_PANE
+    );
+
+    private final Set<UUID> pissingPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<ScheduledTask> scheduledTasks = ConcurrentHashMap.newKeySet();
+
+    private NamespacedKey displayKey;
 
     private String startMessage;
     private String cooldownMessage;
@@ -37,8 +55,11 @@ public final class Piss extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        displayKey = new NamespacedKey(this, "display");
         saveDefaultConfig();
         loadConfigValues();
+        getServer().getPluginManager().registerEvents(this, this);
+        scheduleLoadedChunkCleanup();
         getLogger().info("Piss plugin has been enabled.");
     }
 
@@ -95,22 +116,33 @@ public final class Piss extends JavaPlugin {
         pissingPlayers.add(player.getUniqueId());
         player.sendMessage(startMessage);
 
-        new BukkitRunnable() {
-            int ticks = 0;
+        int interval = Math.max(1, dropInterval);
+        trackTask(player.getScheduler().runAtFixedRate(this, new Consumer<>() {
+            private int ticks = 0;
 
             @Override
-            public void run() {
+            public void accept(ScheduledTask task) {
+                if (!player.isOnline() || !player.isValid()) {
+                    finishPiss(player, task);
+                    return;
+                }
+
                 if (ticks >= pissDuration) {
-                    cancel();
-                    pissingPlayers.remove(player.getUniqueId());
+                    finishPiss(player, task);
                     return;
                 }
                 spawnDrop(player, player.getLocation().getDirection().normalize());
-                ticks += dropInterval;
+                ticks += interval;
             }
-        }.runTaskTimer(this, 0L, dropInterval);
+        }, () -> pissingPlayers.remove(player.getUniqueId()), 1L, interval));
 
         return true;
+    }
+
+    private void finishPiss(Player player, ScheduledTask task) {
+        task.cancel();
+        scheduledTasks.remove(task);
+        pissingPlayers.remove(player.getUniqueId());
     }
 
     private void spawnDrop(Player player, Vector dir) {
@@ -119,6 +151,7 @@ public final class Piss extends JavaPlugin {
                 .add(0, crotchHeight, 0);
 
         ItemDisplay drop = player.getWorld().spawn(spawnPos, ItemDisplay.class);
+        markDisplay(drop);
         drop.setItemStack(new ItemStack(Material.YELLOW_STAINED_GLASS));
         setScale(drop, dropSize);
 
@@ -127,31 +160,41 @@ public final class Piss extends JavaPlugin {
     }
 
     private void startDropTask(Player player, ItemDisplay drop, Location startLoc, Vector velocity) {
-        new BukkitRunnable() {
-            Location loc = startLoc.clone();
+        trackTask(drop.getScheduler().runAtFixedRate(this, new Consumer<>() {
+            private Location loc = startLoc.clone();
 
             @Override
-            public void run() {
+            public void accept(ScheduledTask task) {
+                if (!drop.isValid()) {
+                    cancelTask(task);
+                    return;
+                }
+
                 velocity.add(new Vector(0, dropGravity, 0));
                 loc.add(velocity);
+
+                if (!Bukkit.isOwnedByCurrentRegion(loc)) {
+                    drop.teleportAsync(loc);
+                    return;
+                }
 
                 for (var entity : loc.getWorld().getNearbyEntities(loc, dropHitbox, dropHitbox, dropHitbox)) {
                     if (entity.equals(player) || entity instanceof ItemDisplay) continue;
                     onEntityHit(drop, velocity);
-                    cancel();
+                    cancelTask(task);
                     return;
                 }
 
                 if (loc.getBlock().getType().isSolid()) {
                     summonPuddle(loc);
-                    drop.remove();
-                    cancel();
+                    removeDisplay(drop);
+                    cancelTask(task);
                     return;
                 }
 
-                drop.teleport(loc);
+                drop.teleportAsync(loc);
             }
-        }.runTaskTimer(this, 0L, 1L);
+        }, () -> removeTrackedDisplay(drop), 1L, 1L));
     }
 
     private void onEntityHit(ItemDisplay drop, Vector velocity) {
@@ -160,42 +203,129 @@ public final class Piss extends JavaPlugin {
         velocity.setZ(0);
         velocity.setY(-0.02);
 
-        new BukkitRunnable() {
+        trackTask(drop.getScheduler().runAtFixedRate(this, new Consumer<>() {
             @Override
-            public void run() {
+            public void accept(ScheduledTask task) {
                 if (!drop.isValid()) {
-                    cancel();
+                    cancelTask(task);
                     return;
                 }
                 Location dLoc = drop.getLocation().add(0, -0.05, 0);
-                if (dLoc.getBlock().getType().isSolid()) {
-                    summonPuddle(dLoc);
-                    drop.remove();
-                    cancel();
+                if (!Bukkit.isOwnedByCurrentRegion(dLoc)) {
+                    drop.teleportAsync(dLoc);
                     return;
                 }
-                drop.teleport(dLoc);
+
+                if (dLoc.getBlock().getType().isSolid()) {
+                    summonPuddle(dLoc);
+                    removeDisplay(drop);
+                    cancelTask(task);
+                    return;
+                }
+                drop.teleportAsync(dLoc);
             }
-        }.runTaskTimer(this, 0L, 1L);
+        }, () -> removeTrackedDisplay(drop), 1L, 1L));
     }
 
     public void summonPuddle(Location loc) {
         Location puddleLoc = loc.getBlock().getLocation().add(0.5, 1.0, 0.5);
         puddleLoc.add((Math.random() - 0.5) * puddleRandomOffset, 0.1, (Math.random() - 0.5) * puddleRandomOffset);
 
-        ItemDisplay puddle = loc.getWorld().spawn(puddleLoc, ItemDisplay.class);
+        trackTask(Bukkit.getRegionScheduler().run(this, puddleLoc, task -> {
+            spawnPuddle(puddleLoc);
+            scheduledTasks.remove(task);
+        }));
+    }
+
+    private void spawnPuddle(Location puddleLoc) {
+        ItemDisplay puddle = puddleLoc.getWorld().spawn(puddleLoc, ItemDisplay.class);
+        markDisplay(puddle);
         puddle.setItemStack(new ItemStack(Material.YELLOW_STAINED_GLASS_PANE));
         setScale(puddle, puddleSize, puddleSize, puddleThickness);
         Transformation t = puddle.getTransformation();
         t.getLeftRotation().x = 1f;
         puddle.setTransformation(t);
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                puddle.remove();
+        trackTask(puddle.getScheduler().runDelayed(this, task -> {
+            removeDisplay(puddle);
+            scheduledTasks.remove(task);
+        }, () -> removeTrackedDisplay(puddle), Math.max(1L, puddleLifetime)));
+    }
+
+    private void markDisplay(ItemDisplay display) {
+        display.setPersistent(false);
+        display.addScoreboardTag(DISPLAY_TAG);
+        display.getPersistentDataContainer().set(displayKey, PersistentDataType.BYTE, (byte) 1);
+    }
+
+    private boolean isPluginDisplay(Entity entity) {
+        if (!(entity instanceof ItemDisplay display)) {
+            return false;
+        }
+
+        if (display.getScoreboardTags().contains(DISPLAY_TAG)
+                || display.getPersistentDataContainer().has(displayKey, PersistentDataType.BYTE)) {
+            return true;
+        }
+
+        ItemStack item = display.getItemStack();
+        return item != null && LEGACY_DISPLAY_MATERIALS.contains(item.getType());
+    }
+
+    private void removeDisplay(ItemDisplay display) {
+        removeTrackedDisplay(display);
+        display.remove();
+    }
+
+    private void removeTrackedDisplay(ItemDisplay display) {
+        display.removeScoreboardTag(DISPLAY_TAG);
+    }
+
+    private void trackTask(ScheduledTask task) {
+        scheduledTasks.add(task);
+    }
+
+    private void cancelTask(ScheduledTask task) {
+        task.cancel();
+        scheduledTasks.remove(task);
+    }
+
+    private void scheduleLoadedChunkCleanup() {
+        trackTask(Bukkit.getGlobalRegionScheduler().runDelayed(this, task -> {
+            cleanupLoadedChunks();
+            scheduledTasks.remove(task);
+        }, 1L));
+    }
+
+    private void cleanupLoadedChunks() {
+        for (var world : getServer().getWorlds()) {
+            for (var chunk : world.getLoadedChunks()) {
+                trackTask(Bukkit.getRegionScheduler().run(this, world, chunk.getX(), chunk.getZ(), task -> {
+                    cleanupChunk(chunk);
+                    scheduledTasks.remove(task);
+                }));
             }
-        }.runTaskLater(this, puddleLifetime);
+        }
+    }
+
+    @EventHandler
+    public void onChunkLoad(ChunkLoadEvent event) {
+        cleanupChunk(event.getChunk());
+    }
+
+    private void cleanupChunk(Chunk chunk) {
+        for (var entity : chunk.getEntities()) {
+            if (isPluginDisplay(entity)) {
+                entity.remove();
+            }
+        }
+    }
+
+    private void cancelAllTasks() {
+        for (var task : scheduledTasks) {
+            task.cancel();
+        }
+        scheduledTasks.clear();
     }
 
     private void setScale(ItemDisplay display, double scale) {
@@ -212,6 +342,8 @@ public final class Piss extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        cancelAllTasks();
+        pissingPlayers.clear();
         getLogger().info("Piss plugin has been disabled.");
     }
 }
