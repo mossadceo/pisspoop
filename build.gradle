@@ -2,8 +2,8 @@ plugins {
     id 'java'
 }
 
-group = 'net.nar1nari'
-version = '1.0'
+group = 'net.mossadceo'
+version = '1.1.0'
 
 repositories {
     mavenCentral()
@@ -26,6 +26,7 @@ java {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 25
+    options.compilerArgs += ['-Xlint:deprecation']
 }
 
 tasks.named('jar') {

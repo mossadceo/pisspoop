@@ -1,7 +1,7 @@
 # Piss Plugin Folia
 
-A Paper/Folia 1.21 plugin that allows players to **pee** in Minecraft using the `/piss` command.  
-When activated, the player will emit a small yellow stained glass stream forward, which falls with gravity and creates puddles when hitting blocks.
+A Paper/Folia 1.21 plugin with `/piss` and `/poop` commands.
+Players can create configurable pee streams, poop piles, collect excrement, and throw it at blocks or players.
 
 ---
 
@@ -14,6 +14,12 @@ When activated, the player will emit a small yellow stained glass stream forward
 - Works with scaled players (supports different player sizes).
 - Supports Paper and Folia scheduling APIs.
 - Marks and cleans plugin-created display entities to avoid stuck glass after restarts.
+- Command `/poop` with configurable cooldown.
+- Poop piles form behind the player while movement is locked.
+- Poop piles disappear after 10 seconds if they are not collected.
+- Poop piles can be collected into throwable excrement items.
+- Thrown excrement leaves small brown carpet stains on hit surfaces.
+- Hitting a player with excrement gives short nausea.
 
 ---
 
@@ -29,12 +35,15 @@ The compiled plugin jar is created in `build/libs/`.
 ## Commands
 - `/piss` – Start peeing.  
 - `/piss reload` – Reload plugin configuration (requires permission).  
+- `/poop` – Start pooping.  
 
 ---
 
 ## Permissions
 - `piss.use` – Allows using the `/piss` command.  
 - `piss.reload` – Allows reloading the plugin configuration.  
+- `poop.use` – Allows using the `/poop` command.  
+- `poop.nocooldown` – Allows using `/poop` without cooldown.  
 
 ---
 
@@ -45,7 +54,13 @@ The `config.yml` file lets you adjust various options:
 message:
   start: "§eYou started peeing..."
   cooldown: "§cYou're already peeing!"
-  no-permisson: "§cYou do not have permission to use this command."
+  no-permission: "§cYou do not have permission to use this command."
+  poop:
+    start: "§6You started pooping..."
+    cooldown: "§cWait {seconds} seconds before pooping again."
+    already: "§cYou're already pooping!"
+    finish: "§6You finished pooping."
+    not-ready: "§cFinish pooping first."
 
 piss:
   duration: 200         # How long peeing lasts (ticks)
@@ -60,13 +75,16 @@ puddle:
   size: 0.6             # Puddle size
   thickness: 0.01       # Puddle thickness (flatness)
   random-offset: 2.0    # Random offset for puddle spread
+
+poop:
+  cooldown-seconds: 60  # Cooldown for /poop
 ```
 
 ---
 
 ## Credits and License
 
-This project is based on the original Piss plugin by **nar1nari**.
+This project is based on the original MIT-licensed Piss plugin. Original copyright attribution is preserved in `LICENSE`.
 
 Folia/Paper compatibility updates and Gradle migration by **mossadceo**.
 

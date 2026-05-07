@@ -2,6 +2,12 @@ message:
   start: §eYou started peeing...
   cooldown: §cYou're already peeing!
   no-permission: §cYou do not have permission to use this command.
+  poop:
+    start: §6You started pooping...
+    cooldown: §cWait {seconds} seconds before pooping again.
+    already: §cYou're already pooping!
+    finish: §6You finished pooping.
+    not-ready: §cFinish pooping first.
 
 piss:
   duration: 200
@@ -16,3 +22,6 @@ puddle:
   size: 0.6
   thickness: 0.01
   random-offset: 2.0
+
+poop:
+  cooldown-seconds: 60

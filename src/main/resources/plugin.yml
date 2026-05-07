@@ -1,6 +1,6 @@
 name: piss
-version: '1.0'
-main: net.nar1nari.piss.Piss
+version: '1.1.0'
+main: net.mossadceo.piss.Piss
 api-version: '1.21'
 folia-supported: true
 authors: [ mossadceo ]
@@ -10,10 +10,20 @@ commands:
     description: Start peeing
     usage: /piss [reload]
     permission: piss.use
+  poop:
+    description: Start pooping
+    usage: /poop
+    permission: poop.use
 permissions:
   piss.use:
     description: Allows player to use /piss
     default: true
   piss.reload:
     description: Allows player to reload plugin config
+    default: op
+  poop.use:
+    description: Allows player to use /poop
+    default: true
+  poop.nocooldown:
+    description: Allows player to use /poop without cooldown
     default: op
