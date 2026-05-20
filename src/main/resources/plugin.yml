@@ -1,6 +1,6 @@
-name: piss
-version: '1.1.0'
-main: net.mossadceo.piss.Piss
+name: pisspoop
+version: '1.2.0'
+main: net.mossadceo.pisspoop.PissPoop
 api-version: '1.21'
 folia-supported: true
 authors: [ mossadceo ]

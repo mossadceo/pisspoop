@@ -1,4 +1,4 @@
-# Piss Plugin Folia
+# pisspoop
 
 A Paper/Folia 1.21 plugin with `/piss` and `/poop` commands.
 Players can create configurable pee streams, poop piles, collect excrement, and throw it at blocks or players.
@@ -86,6 +86,6 @@ poop:
 
 This project is based on the original MIT-licensed Piss plugin. Original copyright attribution is preserved in `LICENSE`.
 
-Folia/Paper compatibility updates and Gradle migration by **mossadceo**.
+Folia/Paper compatibility updates, Gradle migration, and pisspoop updates by **mossadceo**.
 
 The project is distributed under the MIT License. The original copyright notice is preserved in `LICENSE`.

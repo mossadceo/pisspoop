@@ -1,4 +1,4 @@
-package net.mossadceo.piss;
+package net.mossadceo.pisspoop;
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
@@ -8,6 +8,7 @@ import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -20,6 +21,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.block.BlockFace;
@@ -42,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 
-public final class Piss extends JavaPlugin implements Listener {
+public final class PissPoop extends JavaPlugin implements Listener {
     private static final String DISPLAY_TAG = "piss-plugin-display";
     private static final String POOP_PILE_TAG = "piss-plugin-poop-pile";
     private static final int POOP_DURATION = 80;
@@ -50,9 +52,16 @@ public final class Piss extends JavaPlugin implements Listener {
     private static final int POOP_PILE_LIFETIME = 200;
     private static final int POOP_STAIN_LIFETIME = 60;
     private static final double POOP_DROP_SPEED = 0.35;
-    private static final double POOP_DROP_SIZE = 0.18;
+    private static final double POOP_DROP_GRAVITY = -0.035;
+    private static final double POOP_DROP_SIZE = 0.22;
+    private static final int POOP_DROP_MAX_TICKS = 80;
     private static final double POOP_COLLECT_RADIUS = 1.6;
-    private static final double POOP_PILE_RADIUS = 0.35;
+    private static final double POOP_PILE_RADIUS = 0.85;
+    private static final int WEAK_PISS_DURATION = 40;
+    private static final double WEAK_PISS_DROP_SPEED = 0.16;
+    private static final double WEAK_PISS_DROP_GRAVITY = -0.035;
+    private static final double WEAK_PISS_DROP_SIZE = 0.06;
+    private static final double WEAK_PISS_DROP_HITBOX = 0.12;
     private static final Set<Material> POOP_BLOCKS = Set.of(
             Material.BROWN_CONCRETE,
             Material.BROWN_CONCRETE_POWDER,
@@ -69,6 +78,7 @@ public final class Piss extends JavaPlugin implements Listener {
     private final Set<UUID> poopingPlayers = ConcurrentHashMap.newKeySet();
     private final Set<String> readyPoopPiles = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> poopCooldowns = new ConcurrentHashMap<>();
+    private final Map<UUID, FoodState> forcedExcrementEatStates = new ConcurrentHashMap<>();
     private final Set<ScheduledTask> scheduledTasks = ConcurrentHashMap.newKeySet();
 
     private NamespacedKey displayKey;
@@ -109,7 +119,7 @@ public final class Piss extends JavaPlugin implements Listener {
         loadConfigValues();
         getServer().getPluginManager().registerEvents(this, this);
         scheduleLoadedChunkCleanup();
-        getLogger().info("Piss plugin has been enabled.");
+        getLogger().info("pisspoop plugin has been enabled.");
     }
 
     private void loadConfigValues() {
@@ -249,6 +259,9 @@ public final class Piss extends JavaPlugin implements Listener {
                     return;
                 }
 
+                if (ticks < WEAK_PISS_DURATION) {
+                    spawnWeakPissDrop(player);
+                }
                 spawnPoopDrop(player, pileCenter, pileId);
                 ticks += POOP_INTERVAL;
             }
@@ -287,11 +300,7 @@ public final class Piss extends JavaPlugin implements Listener {
         Location spawnPos = player.getLocation().clone()
                 .add(behind.clone().multiply(0.35))
                 .add(0, player.getHeight() * 0.35, 0);
-        Location target = pileCenter.clone().add(
-                random.nextDouble(-POOP_PILE_RADIUS, POOP_PILE_RADIUS),
-                random.nextDouble(0.0, 0.35),
-                random.nextDouble(-POOP_PILE_RADIUS, POOP_PILE_RADIUS)
-        );
+        Location target = pileCenter.clone().add(randomPoopPileOffset(random));
 
         ItemDisplay poop = player.getWorld().spawn(spawnPos, ItemDisplay.class);
         markDisplay(poop);
@@ -320,14 +329,16 @@ public final class Piss extends JavaPlugin implements Listener {
                 }
 
                 ticks++;
+                velocity.add(new Vector(0, POOP_DROP_GRAVITY, 0));
                 loc.add(velocity);
                 if (!Bukkit.isOwnedByCurrentRegion(loc)) {
                     poop.teleportAsync(loc);
                     return;
                 }
 
-                if (ticks > 50 || loc.distanceSquared(target) <= 0.08) {
-                    spawnPoopPilePiece(target, pileId);
+                Location groundLoc = getGroundLandingLocation(loc);
+                if (groundLoc != null || ticks > POOP_DROP_MAX_TICKS) {
+                    spawnPoopPilePiece(groundLoc != null ? groundLoc : target, pileId);
                     removeDisplay(poop);
                     cancelTask(task);
                     return;
@@ -341,19 +352,51 @@ public final class Piss extends JavaPlugin implements Listener {
     private void spawnPoopPilePiece(Location loc, String pileId) {
         trackTask(Bukkit.getRegionScheduler().run(this, loc, task -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            ItemDisplay piece = loc.getWorld().spawn(loc, ItemDisplay.class);
+            Location pieceLoc = loc.clone();
+            pieceLoc.setYaw(0.0f);
+            pieceLoc.setPitch(0.0f);
+            ItemDisplay piece = pieceLoc.getWorld().spawn(pieceLoc, ItemDisplay.class);
             markDisplay(piece);
             piece.addScoreboardTag(POOP_PILE_TAG);
             piece.getPersistentDataContainer().set(poopPileKey, PersistentDataType.STRING, pileId);
             piece.setItemStack(new ItemStack(randomPoopBlock()));
-            setScale(
-                    piece,
-                    random.nextDouble(0.16, 0.32),
-                    random.nextDouble(0.12, 0.28),
-                    random.nextDouble(0.16, 0.32)
-            );
+            setScale(piece, random.nextDouble(0.32, 0.48));
             scheduledTasks.remove(task);
         }));
+    }
+
+    private Location getGroundLandingLocation(Location loc) {
+        if (loc.getBlock().getType().isSolid()) {
+            return new Location(
+                    loc.getWorld(),
+                    loc.getX(),
+                    loc.getBlockY() + 1.02,
+                    loc.getZ(),
+                    0.0f,
+                    0.0f
+            );
+        }
+
+        Location below = loc.clone().subtract(0, 0.08, 0);
+        if (below.getBlock().getType().isSolid()) {
+            Location landing = below.getBlock().getLocation();
+            return new Location(
+                    loc.getWorld(),
+                    loc.getX(),
+                    landing.getY() + 1.02,
+                    loc.getZ(),
+                    0.0f,
+                    0.0f
+            );
+        }
+
+        return null;
+    }
+
+    private Vector randomPoopPileOffset(ThreadLocalRandom random) {
+        double angle = random.nextDouble(0.0, Math.PI * 2.0);
+        double radius = Math.sqrt(random.nextDouble()) * POOP_PILE_RADIUS;
+        return new Vector(Math.cos(angle) * radius, 0.0, Math.sin(angle) * radius);
     }
 
     private void markPoopPileReady(Location pileCenter, String pileId) {
@@ -382,6 +425,21 @@ public final class Piss extends JavaPlugin implements Listener {
     }
 
     private void spawnDrop(Player player, Vector dir) {
+        spawnPissDrop(player, dir, dropSpeed, dropGravity, dropSize, dropHitbox);
+    }
+
+    private void spawnWeakPissDrop(Player player) {
+        spawnPissDrop(
+                player,
+                player.getLocation().getDirection().normalize(),
+                WEAK_PISS_DROP_SPEED,
+                WEAK_PISS_DROP_GRAVITY,
+                WEAK_PISS_DROP_SIZE,
+                WEAK_PISS_DROP_HITBOX
+        );
+    }
+
+    private void spawnPissDrop(Player player, Vector dir, double speed, double gravity, double size, double hitbox) {
         double crotchHeight = player.getHeight() * 0.35;
         Location spawnPos = player.getLocation().clone()
                 .add(0, crotchHeight, 0);
@@ -389,13 +447,21 @@ public final class Piss extends JavaPlugin implements Listener {
         ItemDisplay drop = player.getWorld().spawn(spawnPos, ItemDisplay.class);
         markDisplay(drop);
         drop.setItemStack(new ItemStack(Material.YELLOW_STAINED_GLASS));
-        setScale(drop, dropSize);
+        setScale(drop, size);
 
-        Vector velocity = dir.multiply(dropSpeed).add(new Vector(0, 0.1, 0));
-        startDropTask(player, drop, spawnPos.clone(), velocity);
+        Vector velocity = dir.multiply(speed).add(new Vector(0, 0.1, 0));
+        startDropTask(player, drop, spawnPos.clone(), velocity, gravity, size, hitbox);
     }
 
-    private void startDropTask(Player player, ItemDisplay drop, Location startLoc, Vector velocity) {
+    private void startDropTask(
+            Player player,
+            ItemDisplay drop,
+            Location startLoc,
+            Vector velocity,
+            double gravity,
+            double size,
+            double hitbox
+    ) {
         trackTask(drop.getScheduler().runAtFixedRate(this, new Consumer<>() {
             private Location loc = startLoc.clone();
 
@@ -406,7 +472,7 @@ public final class Piss extends JavaPlugin implements Listener {
                     return;
                 }
 
-                velocity.add(new Vector(0, dropGravity, 0));
+                velocity.add(new Vector(0, gravity, 0));
                 loc.add(velocity);
 
                 if (!Bukkit.isOwnedByCurrentRegion(loc)) {
@@ -414,9 +480,9 @@ public final class Piss extends JavaPlugin implements Listener {
                     return;
                 }
 
-                for (var entity : loc.getWorld().getNearbyEntities(loc, dropHitbox, dropHitbox, dropHitbox)) {
+                for (var entity : loc.getWorld().getNearbyEntities(loc, hitbox, hitbox, hitbox)) {
                     if (entity.equals(player) || entity instanceof ItemDisplay) continue;
-                    onEntityHit(drop, velocity);
+                    onEntityHit(drop, velocity, size);
                     cancelTask(task);
                     return;
                 }
@@ -433,8 +499,8 @@ public final class Piss extends JavaPlugin implements Listener {
         }, () -> removeTrackedDisplay(drop), 1L, 1L));
     }
 
-    private void onEntityHit(ItemDisplay drop, Vector velocity) {
-        setScale(drop, dropSize * 2);
+    private void onEntityHit(ItemDisplay drop, Vector velocity, double size) {
+        setScale(drop, size * 2);
         velocity.setX(0);
         velocity.setZ(0);
         velocity.setY(-0.02);
@@ -525,27 +591,78 @@ public final class Piss extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onExcrementUse(PlayerInteractEvent event) {
-        if (event.getHand() != EquipmentSlot.HAND
-                || !isRightClick(event.getAction())) {
+        if (event.getHand() != EquipmentSlot.HAND) {
             return;
         }
 
         if (!isExcrementItem(event.getItem())) {
-            if (tryCollectPoopPile(event.getPlayer())) {
+            if (isRightClick(event.getAction()) && tryCollectPoopPile(event.getPlayer())) {
                 event.setCancelled(true);
             }
             return;
         }
 
-        event.setCancelled(true);
         Player player = event.getPlayer();
+        if (isRightClick(event.getAction())) {
+            allowFullHungerExcrementEating(player);
+            return;
+        }
+
+        if (!isLeftClick(event.getAction())) {
+            return;
+        }
+
+        event.setCancelled(true);
+        throwExcrement(player);
+    }
+
+    private void throwExcrement(Player player) {
         removeOneExcrement(player);
+        player.playSound(player.getLocation(), Sound.ENTITY_SLIME_SQUISH, 0.9f, 0.55f);
         Snowball snowball = player.launchProjectile(
                 Snowball.class,
                 player.getLocation().getDirection().normalize().multiply(1.2)
         );
         snowball.setItem(createExcrementItem(1));
         snowball.getPersistentDataContainer().set(poopProjectileKey, PersistentDataType.BYTE, (byte) 1);
+    }
+
+    @EventHandler
+    public void onExcrementConsume(PlayerItemConsumeEvent event) {
+        if (isExcrementItem(event.getItem())) {
+            Player player = event.getPlayer();
+            restoreForcedExcrementEatState(player);
+            player.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, 600, 1, true, true, true));
+            player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 600, 0, true, true, true));
+            player.playSound(player.getLocation(), Sound.ENTITY_GENERIC_EAT, 0.8f, 0.8f);
+        }
+    }
+
+    private void allowFullHungerExcrementEating(Player player) {
+        if (player.getFoodLevel() < 20 || forcedExcrementEatStates.containsKey(player.getUniqueId())) {
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        forcedExcrementEatStates.put(playerId, new FoodState(player.getFoodLevel(), player.getSaturation()));
+        player.setFoodLevel(19);
+
+        trackTask(player.getScheduler().runDelayed(this, task -> {
+            if (forcedExcrementEatStates.containsKey(playerId)) {
+                restoreForcedExcrementEatState(player);
+            }
+            scheduledTasks.remove(task);
+        }, () -> forcedExcrementEatStates.remove(playerId), 45L));
+    }
+
+    private void restoreForcedExcrementEatState(Player player) {
+        FoodState state = forcedExcrementEatStates.remove(player.getUniqueId());
+        if (state == null) {
+            return;
+        }
+
+        player.setFoodLevel(state.foodLevel());
+        player.setSaturation(state.saturation());
     }
 
     @EventHandler
@@ -568,11 +685,19 @@ public final class Piss extends JavaPlugin implements Listener {
         return action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK;
     }
 
+    private boolean isLeftClick(Action action) {
+        return action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK;
+    }
+
     private ItemStack createExcrementItem(int amount) {
-        ItemStack item = new ItemStack(Material.BROWN_DYE, amount);
+        ItemStack item = new ItemStack(Material.DRIED_KELP, amount);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("Экскременты", NamedTextColor.GOLD));
+            meta.lore(java.util.List.of(
+                    Component.text("ЛКМ: бросить", NamedTextColor.GRAY),
+                    Component.text("ПКМ: съесть", NamedTextColor.GRAY)
+            ));
             meta.getPersistentDataContainer().set(excrementKey, PersistentDataType.BYTE, (byte) 1);
             item.setItemMeta(meta);
         }
@@ -580,7 +705,7 @@ public final class Piss extends JavaPlugin implements Listener {
     }
 
     private boolean isExcrementItem(ItemStack item) {
-        if (item == null || item.getType() != Material.BROWN_DYE || !item.hasItemMeta()) {
+        if (item == null || item.getType() != Material.DRIED_KELP || !item.hasItemMeta()) {
             return false;
         }
 
@@ -795,12 +920,16 @@ public final class Piss extends JavaPlugin implements Listener {
         display.setTransformation(t);
     }
 
+    private record FoodState(int foodLevel, float saturation) {
+    }
+
     @Override
     public void onDisable() {
         cancelAllTasks();
         pissingPlayers.clear();
         poopingPlayers.clear();
         readyPoopPiles.clear();
-        getLogger().info("Piss plugin has been disabled.");
+        forcedExcrementEatStates.clear();
+        getLogger().info("pisspoop plugin has been disabled.");
     }
 }

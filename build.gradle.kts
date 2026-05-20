@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "net.mossadceo"
-version = "1.1.0"
+version = "1.2.0"
 
 repositories {
     mavenCentral()
@@ -28,5 +28,5 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.jar {
-    archiveBaseName.set("piss")
+    archiveBaseName.set("pisspoop")
 }

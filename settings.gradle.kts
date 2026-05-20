@@ -5,4 +5,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "piss"
+rootProject.name = "pisspoop"
